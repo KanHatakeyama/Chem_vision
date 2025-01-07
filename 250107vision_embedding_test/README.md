@@ -1,5 +1,5 @@
-# 環境
-- A100
+# 環境構築
+- 使用マシン: A100
   - NVIDIA-SMI 550.120
   - Driver Version: 550.120
   - CUDA Version: 12.4 
