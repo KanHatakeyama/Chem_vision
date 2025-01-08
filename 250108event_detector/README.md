@@ -1,12 +1,9 @@
 # 概要
 - resnet18で画像をembedする
+- 動画から画像を抽出し､レアイベントを抽出する
 
-# 環境構築
-- 使用マシン: A100
-  - NVIDIA-SMI 550.120
-  - Driver Version: 550.120
-  - CUDA Version: 12.4 
 
+# setup
 ~~~
 conda create -n vision python=3.10 -y  
 conda activate vision
@@ -21,5 +18,8 @@ pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https
 pip install scikit-learn
 pip install seaborn
 pip install umap-learn
+
+#1/8
+pip install opencv-python==4.10.0.84
 
 ~~~
