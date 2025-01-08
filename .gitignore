@@ -1,4 +1,4 @@
 __pycache__
 *.pyc
 *.mp4
-out_images
+out_images*
