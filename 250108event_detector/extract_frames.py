@@ -109,6 +109,7 @@ def main():
         embed = embedder(img=img_pil)
 
         # 既存 Embedding (embed_list) との類似度をチェック
+        """
         sim_list = []
         for old_embed in embed_list:
             sim = cosine_similarity(
@@ -116,6 +117,12 @@ def main():
                 old_embed.reshape(1, -1)
             )[0][0]  # cosine_similarityは [[値]] の2次元で返す
             sim_list.append(sim)
+        """
+        embed_list_np = np.array(embed_list)  # リストなら先に NumPy 配列に変換する
+        sim_list = cosine_similarity(
+            embed.reshape(1, -1),  # (1, d)
+            embed_list_np          # (N, d)
+        )[0]                       # 結果は (1, N) なので [0] で (N,) にする
 
         # embed_listが空の場合は類似度0とみなす
         if len(sim_list) == 0:
