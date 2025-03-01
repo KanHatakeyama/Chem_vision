@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 swift sft --model_type qwen2-vl-2b-instruct --model_id_or_path qwen/Qwen2-VL-2B-Instruct --sft_type lora   --freeze_vit true   --deepspeed default-zero2 --dataset dataset/annotated.jsonl

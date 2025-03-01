@@ -3,14 +3,11 @@
 """
 使用例：
 python extract_frames.py \
-  --video_path movie/20241126ikura_full.mp4 \
+  --video_dir /data/2024/Chem_vision/private_data/movies \
   --out_dir out_images \
-  --sim_threshold 0.85 \
+  --sim_threshold 0.8 \
   --device cpu
-
-
 """
-
 
 import argparse
 import os
@@ -24,44 +21,44 @@ from Resnet import ResNet18Embedder
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract frames from a video based on similarity threshold, checking against existing images in out_dir. \
-                     Saved image files are named by <video_basename>_<frame_number>.jpg"
+        description="指定フォルダ内のすべての動画について、類似度しきい値をもとにフレームを抽出するスクリプト。\n"
+                    "既存の画像が out_dir に存在する場合、それらのEmbeddingを使って、重複(類似)判定を行います。"
     )
 
-    parser.add_argument("--video_path", type=str, required=True,
-                        help="Path to the input video file (e.g., movie/20241126ikura_full.mp4)")
+    parser.add_argument("--video_dir", type=str, required=True,
+                        help="動画ファイルが複数入ったフォルダへのパス (例: movie)")
     parser.add_argument("--out_dir", type=str, required=True,
-                        help="Directory where extracted images are stored/loaded")
+                        help="抽出した画像を保存するフォルダパス (既存画像もここから読み込まれます)")
     parser.add_argument("--sim_threshold", type=float, default=0.85,
-                        help="Similarity threshold to decide if a frame is 'unique'")
+                        help="フレームの類似度がこの値以上ならスキップ、それより低ければ新規保存する。")
     parser.add_argument("--device", type=str, default="cpu",
-                        help="Device to run ResNet18Embedder on (e.g., 'cpu' or 'cuda')")
+                        help="ResNet18Embedder を実行するデバイス ('cpu' あるいは 'cuda')")
 
     args = parser.parse_args()
 
-    video_path = args.video_path
+    video_dir = args.video_dir
     out_dir = args.out_dir
     sim_threshold = args.sim_threshold
     device = args.device
 
-    # Embeddingモデルの初期化
+    # ----- Embeddingモデルの初期化 -----
     embedder = ResNet18Embedder(device=device)
 
-    # 出力先のディレクトリがなければ作成
+    # ----- 出力先フォルダの作成 -----
     os.makedirs(out_dir, exist_ok=True)
 
-    # 1) 既存画像ファイルを読み込み、Embeddingをリストに格納
+    # ----- 既存画像ファイルの Embedding をリストに格納 -----
     existing_files = os.listdir(out_dir)
-    valid_exts = (".png", ".jpg", ".jpeg", ".bmp")
+    valid_img_exts = (".png", ".jpg", ".jpeg", ".bmp")
     embed_list = []
 
+    print("[INFO] Loading existing images' embeddings...")
     for filename in existing_files:
-        # 画像拡張子以外はスキップ
-        if not filename.lower().endswith(valid_exts):
+        if not filename.lower().endswith(valid_img_exts):
             continue
         path = os.path.join(out_dir, filename)
 
-        # 画像を読み込み -> PIL形式に変換 -> Embedding
+        # 画像を読み込み -> PILに変換 -> Embedding
         existing_img_bgr = cv2.imread(path)
         if existing_img_bgr is None:
             # 読み込めない画像はスキップ
@@ -70,89 +67,105 @@ def main():
         existing_img_rgb = cv2.cvtColor(existing_img_bgr, cv2.COLOR_BGR2RGB)
         existing_img_pil = Image.fromarray(existing_img_rgb)
 
-        # Embeddingを取得
+        # Embedding
         embed = embedder(img=existing_img_pil)
         embed_list.append(embed)
 
-    # 2) 動画ファイル名のベースを取得 (拡張子を除いたもの)
-    #   例: "movie/20241126ikura_full.mp4" -> "20241126ikura_full"
-    video_basename = os.path.splitext(os.path.basename(video_path))[0]
+    print(
+        f"[INFO] Loaded {len(embed_list)} embeddings from existing images.\n")
 
-    # 動画読み込み開始
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"Error: Could not open video {video_path}")
-        return
+    # ----- 指定フォルダ内の動画ファイルを一括処理 -----
+    valid_video_exts = (".mp4", ".avi", ".mov", ".mkv")  # 必要に応じて拡張子を追加
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0:  # 万が一fpsが取得できない場合の対処
-        fps = 30.0
-
-    # 動画のフレームを順次処理
-    pbar = tqdm(total=total_frames, desc="Processing frames")
-
-    added_count = 0  # 新規保存したフレーム数をカウント
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # 現在のフレーム番号（0始まり）
-        frame_idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1  #
-        # あるいは独自カウンタで回すなら
-        # frame_idx = pbar.n
-
-        # PIL形式に変換してEmbeddingを抽出
-        img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        embed = embedder(img=img_pil)
-
-        # 既存 Embedding (embed_list) との類似度をチェック
-        """
-        sim_list = []
-        for old_embed in embed_list:
-            sim = cosine_similarity(
-                embed.reshape(1, -1),
-                old_embed.reshape(1, -1)
-            )[0][0]  # cosine_similarityは [[値]] の2次元で返す
-            sim_list.append(sim)
-        """
-        embed_list_np = np.array(embed_list)  # リストなら先に NumPy 配列に変換する
-        sim_list = cosine_similarity(
-            embed.reshape(1, -1),  # (1, d)
-            embed_list_np          # (N, d)
-        )[0]                       # 結果は (1, N) なので [0] で (N,) にする
-
-        # embed_listが空の場合は類似度0とみなす
-        if len(sim_list) == 0:
-            min_sim = 0.0
-        else:
-            min_sim = max(sim_list)
-
-        # 閾値より低い -> 新しいフレームとして保存
-        if min_sim < sim_threshold:
-            # 「動画ファイル名_フレーム番号.jpg」で保存
-            out_filename = f"{video_basename}_{frame_idx}.jpg"
-            out_path = os.path.join(out_dir, out_filename)
-            cv2.imwrite(out_path, frame)
-
-            # embed_list に追加
-            embed_list.append(embed)
-
-            print("new frame added: ", frame_idx)
-            added_count += 1
-
-        pbar.update(1)
-
-    pbar.close()
-    cap.release()
-    cv2.destroyAllWindows()
+    video_files = []
+    for root, dirs, files in os.walk(video_dir):
+        for f in files:
+            if f.lower().endswith(valid_video_exts):
+                video_files.append(os.path.join(root, f))
+        if not video_files:
+            print(
+                f"[WARN] 指定フォルダ({video_dir})に該当する動画ファイルが見つかりませんでした。処理を終了します。")
+            return
 
     print(
-        f"Total unique images (existing + newly extracted): {len(embed_list)}")
-    print(f"Newly added frames from video: {added_count}")
-    print(f"Saved frames to: {out_dir}")
+        f"[INFO] Found {len(video_files)} video file(s) in '{video_dir}'. Processing...\n")
+
+    # 総合カウンタ（すべての動画を通して新規保存したフレーム数）
+    total_added_count = 0
+
+    for video_file in video_files:
+        video_path = os.path.join(video_dir, video_file)
+
+        # 動画名の拡張子を除いた部分
+        video_basename = os.path.splitext(os.path.basename(video_path))[0]
+
+        # 動画を開く
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"[ERROR] Could not open video: {video_path}")
+            continue
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps == 0:  # fpsが取得できない場合の対処
+            fps = 30.0
+
+        print(
+            f"[INFO] Processing '{video_file}' (Frames: {total_frames}, FPS: {fps})")
+
+        pbar = tqdm(total=total_frames, desc=f"Extracting from {video_file}")
+        added_count = 0  # この動画ファイルに対して保存したフレーム数
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # 現在のフレーム番号
+            frame_idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+
+            # Embedding取得
+            img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            embed = embedder(img=img_pil)
+
+            # embed_list が空の場合は、問答無用で新規保存
+            if len(embed_list) == 0:
+                min_sim = 0.0
+            else:
+                # 既存Embeddingsとの類似度を計算
+                embed_list_np = np.array(embed_list)  # (N, d)
+                sim_list = cosine_similarity(
+                    embed.reshape(1, -1),  # (1, d)
+                    embed_list_np          # (N, d)
+                )[0]
+                min_sim = max(sim_list)  # 最大類似度を取得
+
+            # 判定
+            if min_sim < sim_threshold:
+                # 新規フレームとして保存
+                out_filename = f"{video_basename}_{frame_idx}.jpg"
+                out_path = os.path.join(out_dir, out_filename)
+                cv2.imwrite(out_path, frame)
+
+                # embed_listに追加
+                embed_list.append(embed)
+
+                added_count += 1
+
+            pbar.update(1)
+
+        pbar.close()
+        cap.release()
+        cv2.destroyAllWindows()
+
+        print(f"[INFO] '{video_file}' -> New frames added: {added_count}\n")
+        total_added_count += added_count
+
+    print("="*50)
+    print(f"処理が完了しました。")
+    print(f"フォルダ '{video_dir}' 内の動画から新たに追加されたフレーム: {total_added_count} 枚")
+    print(f"最終的な out_dir('{out_dir}') の合計画像数: {len(embed_list)} 枚")
+    print("="*50)
 
 
 if __name__ == "__main__":
